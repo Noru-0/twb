@@ -98,6 +98,7 @@ jobs:
     - name: Install dependencies
       run: |
         npm ci
+        npm install jest-junit --save-dev
         npm ls --depth=0
 
     - name: Environment validation
@@ -213,9 +214,6 @@ jobs:
     needs: [validate-secrets, test-and-lint, build]
     if: github.ref == 'refs/heads/develop' && github.event_name == 'push' && needs.validate-secrets.outputs.has-render-key == 'true'
     runs-on: ubuntu-latest
-    environment:
-      name: staging
-      url: ${{ steps.deploy.outputs.url }}
     
     steps:
     - name: Checkout code

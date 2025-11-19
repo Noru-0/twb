@@ -15,11 +15,11 @@
     "start:worker": "node dist/worker",
     "migration:run": "echo \"Running migrations...\" && node dist/migration",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
-    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test": "jest tests/unit",
+    "test:watch": "jest --watch tests/unit",
+    "test:cov": "jest --coverage tests/unit",
+    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand tests/unit",
+    "test:e2e": "jest --config ./tests/jest-e2e.json tests/integration"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -68,15 +68,15 @@
       "json",
       "ts"
     ],
-    "rootDir": "src",
+    "rootDir": ".",
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
+      "src/**/*.(t|j)s"
     ],
-    "coverageDirectory": "../coverage",
+    "coverageDirectory": "coverage",
     "testEnvironment": "node",
     "coverageReporters": [
       "text",
@@ -92,6 +92,9 @@
           "outputName": "junit.xml"
         }
       ]
-    ]
+    ],
+    "moduleNameMapper": {
+      "^src/(.*)$": "<rootDir>/src/$1"
+    }
   }
 }
