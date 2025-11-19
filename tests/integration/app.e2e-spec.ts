@@ -31,10 +31,8 @@ describe('AppController (e2e)', () => {
   }, 10000); // Timeout 10s
 
   it('should return app info', async () => {
-    const response = await request(app.getHttpServer())
-      .get('/')
-      .expect(200);
-    
+    const response = await request(app.getHttpServer()).get('/').expect(200);
+
     expect(response.text).toBe('Hello World!');
   });
 });

@@ -6,7 +6,6 @@ import { UserRole } from '../../src/entities/user.entity';
 
 describe('AuthController', () => {
   let controller: AuthController;
-  let authService: AuthService;
 
   const mockAuthService = {
     signUp: jest.fn(),
@@ -24,7 +23,6 @@ describe('AuthController', () => {
     }).compile();
 
     controller = module.get<AuthController>(AuthController);
-    authService = module.get<AuthService>(AuthService);
   });
 
   afterEach(() => {
@@ -75,7 +73,9 @@ describe('AuthController', () => {
       mockAuthService.signUp.mockRejectedValue(error);
 
       // Act & Assert
-      await expect(controller.signUp(signUpDto)).rejects.toThrow('Service error');
+      await expect(controller.signUp(signUpDto)).rejects.toThrow(
+        'Service error',
+      );
       expect(mockAuthService.signUp).toHaveBeenCalledWith(signUpDto);
     });
   });

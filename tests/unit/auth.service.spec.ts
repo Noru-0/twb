@@ -1,6 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { AuthService } from '../../src/auth/auth.service';
 import { User, UserRole } from '../../src/entities/user.entity';
 import { SignUpDto } from '../../src/auth/dto/signup.dto';
@@ -11,7 +10,6 @@ jest.mock('bcrypt');
 
 describe('AuthService', () => {
   let service: AuthService;
-  let userRepository: Repository<User>;
 
   const mockUserRepository = {
     findOne: jest.fn(),
@@ -33,7 +31,6 @@ describe('AuthService', () => {
     }).compile();
 
     service = module.get<AuthService>(AuthService);
-    userRepository = module.get<Repository<User>>(getRepositoryToken(User));
   });
 
   afterEach(() => {
@@ -57,7 +54,7 @@ describe('AuthService', () => {
       mockUserRepository.findOne.mockResolvedValue(null);
       mockBcrypt.genSalt.mockResolvedValue('salt' as never);
       mockBcrypt.hash.mockResolvedValue('hashedPassword' as never);
-      
+
       const mockUser = {
         id: 1,
         email: signUpDto.email,
@@ -67,7 +64,7 @@ describe('AuthService', () => {
         createdAt: new Date(),
         passwordHash: 'hashedPassword',
       };
-      
+
       mockUserRepository.create.mockReturnValue(mockUser);
       mockUserRepository.save.mockResolvedValue(mockUser);
 

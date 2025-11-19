@@ -2,14 +2,12 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { AuthController } from '../../src/auth/auth.controller';
 import { AuthService } from '../../src/auth/auth.service';
 import { User, UserRole } from '../../src/entities/user.entity';
 
 describe('AuthController (e2e)', () => {
   let app: INestApplication;
-  let userRepository: Repository<User>;
 
   const mockUserRepository = {
     findOne: jest.fn(),
@@ -30,7 +28,7 @@ describe('AuthController (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
-    
+
     // Enable validation pipes như trong main.ts
     app.useGlobalPipes(
       new ValidationPipe({
@@ -44,7 +42,6 @@ describe('AuthController (e2e)', () => {
     );
 
     await app.init();
-    userRepository = moduleFixture.get<Repository<User>>(getRepositoryToken(User));
   });
 
   afterAll(async () => {
@@ -68,7 +65,7 @@ describe('AuthController (e2e)', () => {
     it('should successfully register a new user', async () => {
       // Mock không tìm thấy user hiện tại
       mockUserRepository.findOne.mockResolvedValue(null);
-      
+
       const mockUser = {
         id: 1,
         email: validSignupData.email,
@@ -78,7 +75,7 @@ describe('AuthController (e2e)', () => {
         createdAt: new Date(),
         passwordHash: 'hashedPassword',
       };
-      
+
       mockUserRepository.create.mockReturnValue(mockUser);
       mockUserRepository.save.mockResolvedValue(mockUser);
 
