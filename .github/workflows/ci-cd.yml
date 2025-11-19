@@ -120,7 +120,7 @@ jobs:
 
     - name: Run unit tests
       run: |
-        npm run test -- --coverage --watchAll=false
+        npm run test:cov -- --watchAll=false --reporters=default --reporters=jest-junit
         echo "✅ Unit tests passed"
       env:
         NODE_ENV: test
@@ -161,6 +161,7 @@ jobs:
         name: Backend Tests
         path: 'coverage/junit.xml'
         reporter: jest-junit
+        fail-on-error: false
 
   # Build application
   build:

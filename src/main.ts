@@ -21,14 +21,16 @@ async function bootstrap() {
 
   // Enable CORS
   app.enableCors({
-    origin: configService.get('FRONTEND_URL', 'http://localhost:8000'),
+    origin:
+      configService.get<string>('FRONTEND_URL') || 'http://localhost:8000',
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
     allowedHeaders: 'Content-Type, Accept, Authorization',
   });
 
-  await app.listen(configService.get('PORT', 3000));
+  const port = configService.get<number>('PORT') || 3000;
+  await app.listen(port);
   console.log(`Application is running on: ${await app.getUrl()}`);
 }
 
-bootstrap();
+void bootstrap();
