@@ -8,5 +8,16 @@
   },
   "moduleNameMapper": {
     "^src/(.*)$": "<rootDir>/../src/$1"
-  }
+  },
+  "reporters": [
+    "default",
+    [
+      "jest-junit",
+      {
+        "outputDirectory": "coverage",
+        "outputName": "junit-e2e.xml",
+        "suiteName": "Integration Tests"
+      }
+    ]
+  ]
 }

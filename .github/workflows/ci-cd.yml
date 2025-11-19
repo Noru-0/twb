@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ master, develop ]
 
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  actions: read
+
 env:
   NODE_VERSION: '18'
   CACHE_VERSION: v1
@@ -51,6 +57,11 @@ jobs:
   # Code quality and testing
   test-and-lint:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+      actions: read
     
     services:
       postgres:
@@ -121,7 +132,7 @@ jobs:
 
     - name: Run unit tests
       run: |
-        npm run test:cov -- --watchAll=false --reporters=default --reporters=jest-junit
+        npm run test:cov -- --watchAll=false
         echo "✅ Unit tests passed"
       env:
         NODE_ENV: test
@@ -147,6 +158,13 @@ jobs:
         REDIS_URL: redis://localhost:6379
         JWT_SECRET: test-jwt-secret
 
+    - name: List generated reports
+      if: always()
+      run: |
+        echo "📋 Checking for generated test reports:"
+        ls -la coverage/ || echo "No coverage directory found"
+        find . -name "junit*.xml" -type f || echo "No JUnit XML files found"
+
     - name: Upload test coverage
       uses: codecov/codecov-action@v3
       with:
@@ -160,9 +178,16 @@ jobs:
       if: success() || failure()
       with:
         name: Backend Tests
-        path: 'coverage/junit.xml'
+        path: 'coverage/junit*.xml'
         reporter: jest-junit
         fail-on-error: false
+        path-replace-backslashes: true
+        list-suites: all
+        list-tests: all
+        max-annotations: 10
+        fail-on-empty: false
+        only-summary: false
+        token: ${{ secrets.GITHUB_TOKEN }}
 
   # Build application
   build:

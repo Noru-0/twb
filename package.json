@@ -89,7 +89,8 @@
         "jest-junit",
         {
           "outputDirectory": "coverage",
-          "outputName": "junit.xml"
+          "outputName": "junit-unit.xml",
+          "suiteName": "Unit Tests"
         }
       ]
     ],
