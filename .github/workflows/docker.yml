@@ -1,0 +1,153 @@
+name: Backend Docker Build
+
+on:
+  push:
+    branches: [ master, develop, feature/* ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ master, develop ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  MICROSERVICE_NAME: bus-ticket-backend
+
+jobs:
+  # Build matrix for multiple architectures and service variants
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    strategy:
+      matrix:
+        service: [api, worker, migration]
+        include:
+          - service: api
+            tag-suffix: ""
+            target: production
+          - service: worker
+            tag-suffix: "-worker"
+            target: production
+          - service: migration
+            tag-suffix: "-migration"
+            target: production
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch,suffix=${{ matrix.tag-suffix }}
+          type=ref,event=pr,suffix=${{ matrix.tag-suffix }}
+          type=semver,pattern={{version}},suffix=${{ matrix.tag-suffix }}
+          type=semver,pattern={{major}}.{{minor}},suffix=${{ matrix.tag-suffix }}
+          type=sha,prefix={{branch}}-,suffix=${{ matrix.tag-suffix }}
+          type=raw,value=latest,suffix=${{ matrix.tag-suffix }},enable={{is_default_branch}}
+          type=raw,value=develop,suffix=${{ matrix.tag-suffix }},enable=${{ github.ref == 'refs/heads/develop' }}
+
+    - name: Build and push Docker image (${{ matrix.service }})
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        target: ${{ matrix.target }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha,scope=${{ matrix.service }}
+        cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+        platforms: linux/amd64,linux/arm64
+        build-args: |
+          BUILDKIT_INLINE_CACHE=1
+          NODE_ENV=production
+          SERVICE_TYPE=${{ matrix.service }}
+
+  # Security scanning for all service variants
+  security-scan:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    
+    strategy:
+      matrix:
+        service: [api, worker, migration]
+        include:
+          - service: api
+            tag-suffix: ""
+          - service: worker
+            tag-suffix: "-worker"
+          - service: migration
+            tag-suffix: "-migration"
+    
+    steps:
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}${{ matrix.tag-suffix }}
+        format: 'sarif'
+        output: '${{ matrix.service }}-trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: '${{ matrix.service }}-trivy-results.sarif'
+        category: '${{ matrix.service }}-security-scan'
+
+  # Deploy to staging (develop branch)
+  deploy-staging:
+    needs: [build-and-push, security-scan]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Deploy to staging environment
+      id: deploy
+      run: |
+        echo "🚀 Deploying backend services to staging..."
+        
+        # Example: Deploy with Docker Compose using single Dockerfile
+        # docker-compose -f docker-compose.staging.yml pull
+        # docker-compose -f docker-compose.staging.yml up -d api worker
+        
+        echo "✅ Staging deployment completed"
+        echo "API: https://staging-api.your-domaster.com"
+        echo "Worker: Background service deployed"
+
+  # Deploy to production (master branch)
+  deploy-production:
+    needs: [build-and-push, security-scan]
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Deploy to production
+      id: deploy
+      run: |
+        echo "🚀 Deploying backend Docker image to production..."
+        echo "url=https://api.your-domaster.com" >> $GITHUB_OUTPUT
+        
+        # Add your production deployment script here
+        # Examples:
+        # - Deploy to Kubernetes cluster
+        # - Update Docker Swarm services
+        # - Deploy to cloud provider
+        
+        echo "✅ Production deployment completed"

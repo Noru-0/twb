@@ -1,0 +1,343 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches: [ master, develop, feature/* ]
+  pull_request:
+    branches: [ master, develop ]
+
+env:
+  NODE_VERSION: '18'
+  CACHE_VERSION: v1
+
+jobs:
+  # Validate secrets and environment variables
+  validate-secrets:
+    runs-on: ubuntu-latest
+    outputs:
+      has-render-key: ${{ steps.check-secrets.outputs.has-render-key }}
+      has-db-secrets: ${{ steps.check-secrets.outputs.has-db-secrets }}
+    steps:
+    - name: Check required secrets
+      id: check-secrets
+      run: |
+        echo "Validating required secrets..."
+        
+        # Check for Render deployment key (for develop branch)
+        if [[ "${{ secrets.RENDER_SERVICE_ID }}" != "" && "${{ secrets.RENDER_API_KEY }}" != "" ]]; then
+          echo "✅ Render deployment secrets found"
+          echo "has-render-key=true" >> $GITHUB_OUTPUT
+        else
+          echo "⚠️ Render deployment secrets not found"
+          echo "has-render-key=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # Check for database secrets
+        if [[ "${{ secrets.DATABASE_URL }}" != "" || ("${{ secrets.DATABASE_USERNAME }}" != "" && "${{ secrets.DATABASE_PASSWORD }}" != "") ]]; then
+          echo "✅ Database secrets found"
+          echo "has-db-secrets=true" >> $GITHUB_OUTPUT
+        else
+          echo "⚠️ Database secrets not found"
+          echo "has-db-secrets=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # Check JWT secret
+        if [[ "${{ secrets.JWT_SECRET }}" != "" ]]; then
+          echo "✅ JWT secret found"
+        else
+          echo "⚠️ JWT secret not found"
+        fi
+
+  # Code quality and testing
+  test-and-lint:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ env.NODE_VERSION }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-node-${{ env.CACHE_VERSION }}-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-${{ env.CACHE_VERSION }}-
+
+    - name: Install dependencies
+      run: |
+        npm ci
+        npm ls --depth=0
+
+    - name: Environment validation
+      run: |
+        echo "Node.js version: $(node --version)"
+        echo "NPM version: $(npm --version)"
+        echo "Environment: $NODE_ENV"
+      env:
+        NODE_ENV: test
+
+    - name: Run ESLint
+      run: |
+        npm run lint
+        echo "✅ ESLint passed"
+
+    - name: Run Prettier check
+      run: |
+        npm run format -- --check
+        echo "✅ Code formatting is correct"
+
+    - name: Run unit tests
+      run: |
+        npm run test -- --coverage --watchAll=false
+        echo "✅ Unit tests passed"
+      env:
+        NODE_ENV: test
+        DATABASE_HOST: localhost
+        DATABASE_PORT: 5432
+        DATABASE_USERNAME: postgres
+        DATABASE_PASSWORD: postgres
+        DATABASE_NAME: test_db
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test-jwt-secret
+
+    - name: Run integration tests
+      run: |
+        npm run test:e2e -- --watchAll=false
+        echo "✅ Integration tests passed"
+      env:
+        NODE_ENV: test
+        DATABASE_HOST: localhost
+        DATABASE_PORT: 5432
+        DATABASE_USERNAME: postgres
+        DATABASE_PASSWORD: postgres
+        DATABASE_NAME: test_db
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test-jwt-secret
+
+    - name: Upload test coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage/lcov.info
+        flags: backend,unit
+        name: backend-coverage
+        fail_ci_if_error: false
+
+    - name: Generate test report
+      uses: dorny/test-reporter@v1
+      if: success() || failure()
+      with:
+        name: Backend Tests
+        path: 'coverage/junit.xml'
+        reporter: jest-junit
+
+  # Build application
+  build:
+    needs: [validate-secrets, test-and-lint]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ env.NODE_VERSION }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build application
+      run: |
+        npm run build
+        echo "✅ Build completed successfully"
+      env:
+        NODE_ENV: production
+
+    - name: Verify build output
+      run: |
+        if [ -d "dist" ] && [ "$(ls -A dist)" ]; then
+          echo "✅ Build artifacts generated successfully"
+          ls -la dist/
+        else
+          echo "❌ Build artifacts not found"
+          exit 1
+        fi
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: backend-build-${{ github.sha }}
+        path: |
+          dist/
+          package.json
+          package-lock.json
+        retention-days: 7
+
+  # Deploy to development/staging (Render)
+  deploy-develop:
+    needs: [validate-secrets, test-and-lint, build]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push' && needs.validate-secrets.outputs.has-render-key == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: ${{ steps.deploy.outputs.url }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: backend-build-${{ github.sha }}
+        path: ./
+
+    - name: Deploy to Render (Staging)
+      id: deploy
+      run: |
+        echo "🚀 Deploying backend to Render staging environment..."
+        
+        # Deploy to Render using their API
+        DEPLOY_RESPONSE=$(curl -X POST \
+          "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
+          -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+          -H "Content-Type: application/json" \
+          -d '{"clearCache": false}' \
+          --silent --write-out "HTTPSTATUS:%{http_code}")
+        
+        HTTP_STATUS=$(echo $DEPLOY_RESPONSE | tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
+        RESPONSE_BODY=$(echo $DEPLOY_RESPONSE | sed -e 's/HTTPSTATUS:.*//')
+        
+        if [ $HTTP_STATUS -eq 201 ]; then
+          echo "✅ Deployment initiated successfully"
+          echo "Response: $RESPONSE_BODY"
+          echo "url=https://${{ secrets.RENDER_SERVICE_NAME }}.onrender.com" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Deployment failed with status $HTTP_STATUS"
+          echo "Response: $RESPONSE_BODY"
+          exit 1
+        fi
+
+    - name: Wait for deployment
+      run: |
+        echo "⏳ Waiting for deployment to complete..."
+        sleep 60  # Wait for deployment to stabilize
+        
+        # Health check
+        HEALTH_CHECK_URL="https://${{ secrets.RENDER_SERVICE_NAME }}.onrender.com/health"
+        for i in {1..10}; do
+          if curl -f $HEALTH_CHECK_URL > /dev/null 2>&1; then
+            echo "✅ Staging deployment is healthy"
+            break
+          else
+            echo "⏳ Attempt $i: Waiting for service to be ready..."
+            sleep 30
+          fi
+        done
+
+    - name: Run smoke tests
+      run: |
+        echo "🧪 Running smoke tests against staging environment..."
+        STAGING_URL="https://${{ secrets.RENDER_SERVICE_NAME }}.onrender.com"
+        
+        # Test basic endpoints
+        curl -f "$STAGING_URL/health" || exit 1
+        curl -f "$STAGING_URL/api" || exit 1
+        
+        echo "✅ Smoke tests passed"
+
+  # Deploy to production
+  deploy-production:
+    needs: [validate-secrets, test-and-lint, build]
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: backend-build-${{ github.sha }}
+        path: ./
+
+    - name: Deploy to production
+      id: deploy
+      run: |
+        echo "🚀 Deploying backend to production..."
+        echo "url=https://your-backend-domaster.com" >> $GITHUB_OUTPUT
+        
+        # Add your production deployment commands here
+        # Examples:
+        # - Deploy to Heroku: heroku deploy
+        # - Deploy to AWS: aws ecs update-service
+        # - Deploy to Docker registry
+        # - Deploy to Kubernetes
+        
+        echo "✅ Production deployment completed"
+
+  # Notification job
+  notify:
+    needs: [validate-secrets, test-and-lint, build, deploy-develop, deploy-production]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Notify deployment status
+      run: |
+        if [[ "${{ needs.deploy-develop.result }}" == "success" ]]; then
+          echo "✅ Staging deployment successful!"
+        elif [[ "${{ needs.deploy-develop.result }}" == "skipped" ]]; then
+          echo "⏭️ Staging deployment skipped (not develop branch or missing secrets)"
+        elif [[ "${{ needs.deploy-develop.result }}" == "failure" ]]; then
+          echo "❌ Staging deployment failed!"
+        fi
+        
+        if [[ "${{ needs.deploy-production.result }}" == "success" ]]; then
+          echo "✅ Production deployment successful!"
+        elif [[ "${{ needs.deploy-production.result }}" == "skipped" ]]; then
+          echo "⏭️ Production deployment skipped (not master branch)"
+        elif [[ "${{ needs.deploy-production.result }}" == "failure" ]]; then
+          echo "❌ Production deployment failed!"
+        fi
+        
+        if [[ "${{ needs.test-and-lint.result }}" == "success" ]]; then
+          echo "✅ All tests and code quality checks passed!"
+        else
+          echo "❌ Tests or code quality checks failed!"
+        fi
