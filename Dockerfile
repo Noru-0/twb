@@ -1,5 +1,5 @@
 # Development stage
-FROM node:18-alpine AS development
+FROM node:20-alpine AS development
 
 # Install dependencies for database operations
 RUN apk add --no-cache postgresql-client curl
@@ -27,7 +27,7 @@ EXPOSE 3000
 CMD ["npm", "run", "start:dev"]
 
 # Builder stage
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 # Set the working directory in the container
 WORKDIR /app
@@ -35,8 +35,8 @@ WORKDIR /app
 # Copy package.json and package-lock.json (if available)
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production && npm cache clean --force
+# Install all dependencies (including dev dependencies for building)
+RUN npm ci
 
 # Copy the rest of the application code
 COPY . .
@@ -45,7 +45,7 @@ COPY . .
 RUN npm run build
 
 # Production stage
-FROM node:18-alpine AS production
+FROM node:20-alpine AS production
 
 # Install dependencies for database operations and health checks
 RUN apk add --no-cache postgresql-client curl dumb-init
